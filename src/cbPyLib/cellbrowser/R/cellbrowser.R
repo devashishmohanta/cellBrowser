@@ -186,6 +186,81 @@ saveMatrix <- function(counts, dir, prefix, use.mtx) {
 #' ExportToCellbrowser(pbmc_small, dataset.name = "PBMC", dir = "out")
 #' }
 #'
+
+##### findMarkersAll with Level_1
+
+findMarkersAll = function(object){
+  
+  library(Seurat)
+  library(scran)
+  
+  #Expression contains the count data
+  data = object@assays$RNA@data
+  
+  #info file holds the meta information
+  info = object@meta.data
+  
+  a = findMarkers(as.matrix(data), info[, 'Level_1'], direction = "up", lfc = 1)
+  
+  combined_Markers <- data.frame(matrix(ncol = 7, nrow = 0))
+  colnames(combined_Markers) <- c("p_val","avg_log2FC","pct.1","pct.2",
+                                  "p_val_adj","cluster","gene" )
+  
+  level = 'Level_1'
+  
+  for(i in 1:length(a)){
+    print(i)
+    clusterInfo = as.data.frame(a[[i]])
+    clusterInfo <- clusterInfo[, c(2,3,4)]
+    clusterInfo = subset(clusterInfo, clusterInfo$FDR < 0.01)
+    
+    data_1 <- data[rownames(clusterInfo),]
+    
+    # cells present in the cluster 
+    mat_1_cells <-info[which(info[,level] == i),]
+    mat_1 <- data_1[,rownames(mat_1_cells)]
+    
+    #remaining cells 
+    mat_2_cells <- info[which(info[,level] != i),]
+    mat_2 <- data_1[,rownames(mat_2_cells)]
+    
+    library(dplyr)
+    
+    num_cells <- apply(mat_1, 1, function(x) length(which(x >0)))
+    num_rest_cells <- apply(mat_2,1, function(x) length(which(x >0)))
+    
+    pct.1 <- (num_cells/ncol(data))
+    pct.2 <- (num_rest_cells/ncol(data))
+    
+    
+    
+    clusterInfo <- cbind(clusterInfo, pct.1,pct.2)
+    clusterInfo["gene"]<- rownames(clusterInfo)
+    clusterInfo["cluster"] <- i
+    
+    #renaming column names
+    clusterInfo <- clusterInfo %>% rename(p_val = p.value,
+                                          p_val_adj= FDR,
+                                          avg_log2FC = summary.logFC)
+    
+    #reordering columns
+    col_order <- c("p_val","avg_log2FC","pct.1","pct.2","p_val_adj",
+                   "cluster", "gene")
+    
+    clusterInfo <- clusterInfo[, col_order]
+    
+    combined_Markers <- rbind(combined_Markers, clusterInfo)
+    
+    
+  }
+  
+  return(combined_Markers)
+}
+
+
+
+
+
 ExportToCellbrowser <- function(
   object,
   dir,
@@ -383,13 +458,7 @@ ExportToCellbrowser <- function(
         markers <- object@misc["markers"]$markers
       } else {
         message("Running FindAllMarkers(), using wilcox test, min logfc diff 0.25")
-        markers <- FindAllMarkers(
-          object,
-          do.print = TRUE,
-          print.bar = TRUE,
-          test.use = "wilcox",
-          logfc.threshold = 0.25
-        )
+        markers <- findMarkersAll(object)
       }
       message("Writing top ", markers.n, ", cluster markers to ", fname)
       markers.order <- ave(x = rownames(x = markers), markers$cluster, FUN = markers.helper)
